@@ -1,0 +1,16 @@
+# macOS
+.DS_Store
+
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Database file
+cryptopulse_cache.db

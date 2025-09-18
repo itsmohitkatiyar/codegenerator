@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Qwen Dev Assistant</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background: #f9f9f9; }
+        h1 { color: #333; }
+        textarea { width: 100%; height: 120px; margin-bottom: 1em; }
+        pre { background: #272822; color: #f8f8f2; padding: 1em; border-radius: 6px; white-space: pre-wrap; }
+        button { padding: 10px 20px; border: none; background: #4caf50; color: white; cursor: pointer; border-radius: 4px; }
+        button:hover { background: #45a049; }
+    </style>
+</head>
+<body>
+    <h1>💻 Qwen Dev Assistant</h1>
+    <form method="post">
+        <label for="prompt">Enter your prompt:</label><br>
+        <textarea name="prompt" id="prompt">{{prompt or ''}}</textarea><br>
+        <button type="submit">Generate</button>
+    </form>
+
+    {% if result %}
+    <h2>Generated Code:</h2>
+    <pre>{{ result }}</pre>
+    {% endif %}
+</body>
+</html>
