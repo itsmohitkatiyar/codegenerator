@@ -25,7 +25,7 @@ app.add_middleware(
 @app.post("/stream")
 async def stream(request: Request):
     """
-    Stream Qwen responses token by token.
+    Stream Qwen responses token by token in small batches.
     Expects JSON payload: { "messages": [ {"role": "user"/"assistant", "content": "..."} ] }
     """
     data = await request.json()
@@ -40,7 +40,23 @@ async def stream(request: Request):
             prompt_text += f"{msg['content']}\n\n"
 
     def event_stream():
-        for token in llm(prompt_text, stream=True, max_tokens=1024, stop=["</s>"]):
-            yield token["choices"][0]["text"]
+        buffer = ""
+        for token in llm(
+            prompt_text,
+            stream=True,
+            max_tokens=4096,  # increase for long code
+            stop=None         # avoid premature stopping
+        ):
+            text = token["choices"][0]["text"]
+            buffer += text
+
+            # Send output in chunks (reduce front-end re-rendering)
+            if len(buffer) > 50:  # send every ~50 characters
+                yield buffer
+                buffer = ""
+
+        # Send any remaining text
+        if buffer:
+            yield buffer
 
     return StreamingResponse(event_stream(), media_type="text/plain")
