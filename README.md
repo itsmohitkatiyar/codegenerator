@@ -5,8 +5,8 @@
 ![Node Version](https://img.shields.io/badge/node-18+-green)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 
-A modern developer assistant that generates code using the Qwen LLM **locally**.  
-Built with **React + Tailwind CSS** for a sleek frontend and **FastAPI** for streaming responses from the Qwen model.  
+A modern developer assistant that generates code using the Qwen LLM **locally**.
+Built with **React + Tailwind CSS** for a sleek frontend and **FastAPI** for streaming responses from the Qwen model.
 
 Supports **real-time streaming**, saving generated code, and copying results to clipboard.
 
@@ -14,12 +14,12 @@ Supports **real-time streaming**, saving generated code, and copying results to 
 
 ## Features
 
-- Interactive prompt box for code generation  
-- Streaming output token-by-token from Qwen  
-- Save generated code to local files  
-- Copy generated code to clipboard  
-- Modern, responsive UI  
-- Fully local — runs Qwen from GGUF files  
+* Interactive prompt box for code generation
+* Streaming output token-by-token from Qwen
+* Save generated code to local files
+* Copy generated code to clipboard
+* Modern, responsive UI
+* Fully local — runs Qwen from GGUF files
 
 ---
 
@@ -46,10 +46,10 @@ Supports **real-time streaming**, saving generated code, and copying results to 
 
 ## Prerequisites
 
-- Node.js ≥ 18  
-- Python ≥ 3.11  
-- pip  
-- Qwen `.gguf` model files  
+* Node.js ≥ 18
+* Python ≥ 3.11
+* pip
+* Qwen `.gguf` model files
 
 ---
 
@@ -92,10 +92,10 @@ cd backend
 python main.py
 ```
 
-- Runs FastAPI on port **8501** by default.
-- Endpoints:
-  - `GET /stream?prompt=...` → streams code from Qwen
-  - `POST /write/{filename}` → saves code locally
+* Runs FastAPI on port **8501** by default.
+* Endpoints:
+
+  * `POST /stream` → streams code from Qwen
 
 ### Start the Frontend
 
@@ -104,34 +104,34 @@ cd frontend
 npm run dev
 ```
 
-- Opens React + Tailwind UI (default `http://localhost:5173`)  
-- Ensure `backendBase` in `App.jsx` points to `http://127.0.0.1:8501`
+* Opens React + Tailwind UI (default `http://localhost:5173`)
+* Ensure `backendBase` in `App.jsx` points to `http://127.0.0.1:8501`
 
 ---
 
 ## Usage
 
-1. Open the frontend in your browser.  
-2. Type a prompt describing the code to generate.  
-3. Click **Generate** → code will stream in real-time.  
-4. Use **Save to file** or **Copy** buttons for convenience.
+1. Open the frontend in your browser.
+2. Type a prompt describing the code to generate.
+3. The assistant will stream code in real-time.
+4. Use **Copy** button to copy code or implement save functionality as needed.
+5. Press **Cancel** to stop an ongoing generation.
 
 ---
 
 ## Customizing Ports
 
-- **Backend (FastAPI)**:  
+* **Backend (FastAPI)**:
+
   ```bash
   uvicorn main:app --reload --port 8501
-  ```  
-  Or change `port` in `main.py`.
+  ```
+* **Frontend (Vite/React)**: edit `vite.config.js`
 
-- **Frontend (Vite/React)**: edit `vite.config.js`:
   ```js
-  server: { port: 8501 }
-  ```  
-
-- Update `backendBase` in `App.jsx` to match backend port.
+  server: { port: 5173 }
+  ```
+* Update `backendBase` in `App.jsx` to match backend port.
 
 ---
 
@@ -139,22 +139,25 @@ npm run dev
 
 ### Backend
 
-- `fastapi`  
-- `uvicorn`  
-- `llama_cpp`  
+* `fastapi`
+* `uvicorn`
+* `llama_cpp`
 
 ### Frontend
 
-- `react`  
-- `react-dom`  
-- `vite`  
-- `tailwindcss`  
-- `postcss`  
-- `autoprefixer`  
+* `react`
+* `react-dom`
+* `vite`
+* `tailwindcss`
+* `postcss`
+* `autoprefixer`
+* `react-markdown`
+* `remark-gfm`
+* `rehype-highlight`
+* `highlight.js`
 
 ---
 
 ## License
 
 MIT License. Feel free to fork and modify.
-
