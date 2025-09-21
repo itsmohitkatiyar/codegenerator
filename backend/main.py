@@ -7,11 +7,20 @@ import json
 import uuid
 from datetime import datetime
 
+# -------------------------------
+# Model Path
+# -------------------------------
 MODEL_PATH = os.path.expanduser(
     "~/models/llm/qwen/qwen2.5-7b-instruct-q4_0-00001-of-00002.gguf"
 )
 
-HISTORY_FILE = "chat_history.json"
+# -------------------------------
+# Chat Storage
+# -------------------------------
+CHAT_DIR = os.path.expanduser("~/saved_chats")
+os.makedirs(CHAT_DIR, exist_ok=True)
+
+HISTORY_FILE = os.path.join(CHAT_DIR, "chat_history.json")  # for session continuity
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -26,6 +35,9 @@ def save_history(messages):
     with open(HISTORY_FILE, "w") as f:
         json.dump(messages, f)
 
+# -------------------------------
+# Load Qwen Model
+# -------------------------------
 print("🔹 Loading Qwen model on Apple Silicon GPU...")
 llm = Llama(
     model_path=MODEL_PATH,
@@ -34,9 +46,11 @@ llm = Llama(
     n_gpu_layers=-1   # ✅ offload all layers to GPU (Metal)
 )
 
+# -------------------------------
+# FastAPI Setup
+# -------------------------------
 app = FastAPI()
 
-# Allow frontend to connect
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -44,16 +58,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# -------------------------------
+# Stream Endpoint
+# -------------------------------
 @app.post("/stream")
 async def stream(request: Request):
     """
-    Stream Qwen responses token by token in small batches.
+    Stream Qwen responses token by token.
     Expects JSON payload: { "messages": [ {"role": "user"/"assistant", "content": "..."} ] }
     """
     data = await request.json()
     messages = data.get("messages", [])
 
-    # Save history after each request
+    # Save current session history
     save_history(messages)
 
     # Build prompt from chat history
@@ -69,31 +86,32 @@ async def stream(request: Request):
         for token in llm(
             prompt_text,
             stream=True,
-            max_tokens=4096,  # increase for long code
-            stop=None         # avoid premature stopping
+            max_tokens=4096,
+            stop=None
         ):
             text = token["choices"][0]["text"]
             buffer += text
 
-            # Send output in chunks (reduce front-end re-rendering)
-            if len(buffer) > 0:  # send every ~50 characters
+            # Send output in small chunks
+            if len(buffer) > 0:
                 yield buffer
                 buffer = ""
 
-        # Send any remaining text
         if buffer:
             yield buffer
 
     return StreamingResponse(event_stream(), media_type="text/plain")
 
+# -------------------------------
+# Session History
+# -------------------------------
 @app.get("/history")
 async def get_history():
-    """Return saved chat history."""
     return JSONResponse(load_history())
 
-CHAT_DIR = "chats"
-os.makedirs(CHAT_DIR, exist_ok=True)
-
+# -------------------------------
+# Save Chat
+# -------------------------------
 @app.post("/save_chat")
 async def save_chat(request: Request):
     data = await request.json()
@@ -108,20 +126,38 @@ async def save_chat(request: Request):
 
     return {"status": "ok", "filename": filename}
 
+# -------------------------------
+# List Saved Chats
+# -------------------------------
 @app.get("/list_chats")
 async def list_chats():
     files = []
     for fname in os.listdir(CHAT_DIR):
-        if fname.endswith(".json"):
+        if fname.endswith(".json") and fname != "chat_history.json":
             with open(os.path.join(CHAT_DIR, fname)) as f:
                 data = json.load(f)
             files.append({"filename": fname, "title": data.get("title", fname)})
     return files
 
+# -------------------------------
+# Load Specific Chat
+# -------------------------------
 @app.get("/load_chat/{filename}")
 async def load_chat(filename: str):
     filepath = os.path.join(CHAT_DIR, filename)
     if not os.path.exists(filepath):
-        return {"error": "not found"}
+        return JSONResponse({"error": "not found"}, status_code=404)
     with open(filepath) as f:
         return json.load(f)
+
+# -------------------------------
+# Delete Chat
+# -------------------------------
+@app.delete("/delete_chat/{filename}")
+async def delete_chat(filename: str):
+    filepath = os.path.join(CHAT_DIR, filename)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        return JSONResponse({"status": "success", "message": f"{filename} deleted"})
+    else:
+        return JSONResponse({"status": "error", "message": f"{filename} not found"}, status_code=404)
