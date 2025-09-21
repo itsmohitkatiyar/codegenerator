@@ -51,7 +51,7 @@ async def stream(request: Request):
             buffer += text
 
             # Send output in chunks (reduce front-end re-rendering)
-            if len(buffer) > 50:  # send every ~50 characters
+            if len(buffer) > 1:  # send every ~50 characters
                 yield buffer
                 buffer = ""
 
