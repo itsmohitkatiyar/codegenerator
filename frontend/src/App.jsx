@@ -13,7 +13,7 @@ export default function App() {
   const outputRef = useRef(null);
 
   const backendBase = "http://127.0.0.1:8501";
-
+  document.title = "Code Generator";
   // Markdown component with copy button inside code blocks
   const MarkdownWithCopy = ({ content }) => {
   return (
@@ -57,8 +57,6 @@ export default function App() {
     setPrompt("");
     setStatus("");
     setStreaming(true);
-
-
 
     const controller = new AbortController();
     abortRef.current = controller;
