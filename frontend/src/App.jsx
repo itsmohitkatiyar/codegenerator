@@ -58,6 +58,8 @@ export default function App() {
     setStatus("");
     setStreaming(true);
 
+
+
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -115,6 +117,7 @@ export default function App() {
   };
 
   return (
+
     <div className="w-screen h-screen flex flex-col items-center bg-slate-900 p-4">
       <h1 className="text-3xl font-semibold text-white mb-6">💻 Mohit's Code Assistant</h1>
 

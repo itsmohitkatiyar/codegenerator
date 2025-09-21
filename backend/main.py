@@ -9,8 +9,13 @@ MODEL_PATH = os.path.expanduser(
     "~/models/llm/qwen/qwen2.5-7b-instruct-q4_0-00001-of-00002.gguf"
 )
 
-print("🔹 Loading Qwen model...")
-llm = Llama(model_path=MODEL_PATH, n_ctx=8192, n_threads=8)
+print("🔹 Loading Qwen model on Apple Silicon GPU...")
+llm = Llama(
+    model_path=MODEL_PATH,
+    n_ctx=8192,
+    n_threads=8,
+    n_gpu_layers=-1   # ✅ offload all layers to GPU (Metal)
+)
 
 app = FastAPI()
 

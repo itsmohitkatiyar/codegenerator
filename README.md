@@ -72,6 +72,15 @@ pip install --upgrade pip
 pip install fastapi uvicorn llama-cpp-python
 ```
 
+FOR macos, build llama-cpp-python as
+```bash
+cd backend
+python -m venv .venv          # optional but recommended
+source .venv/bin/activate     # macOS/Linux
+CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python --force-reinstall --upgrade --no-cache-dir
+
+```
+ 
 > Edit `main.py` and set `MODEL_PATH` to your local Qwen `.gguf` files.
 
 ### 3. Frontend Setup
