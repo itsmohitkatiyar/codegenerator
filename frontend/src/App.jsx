@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
+import { v4 as uuidv4 } from "uuid";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
@@ -28,29 +29,40 @@ export default function App() {
   }, []);
 
   const loadChat = async (filename) => {
-    const res = await fetch(`${backendBase}/load_chat/${filename}`);
-    const data = await res.json();
-    setChatHistory(data.messages || []);
-    setActiveChat(filename);
-    setDeleteConfirm(null);
-  };
+  const res = await fetch(`${backendBase}/load_chat/${filename}`);
+  const data = await res.json();
+  setChatHistory(data.messages || []);
+  setActiveChat(filename); // this ensures next save updates this chat
+  setDeleteConfirm(null);
+};
+
 
   const saveChat = async () => {
-    if (chatHistory.length === 0) return;
+  // Use existing activeChat filename if it exists, otherwise generate a new one
+  let filename = activeChat;
+  if (!filename) {
+    filename = `${new Date().toISOString().split("T")[0]}_${uuidv4().slice(0, 6)}.json`;
+  }
 
-    await fetch(`${backendBase}/save_chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: chatHistory[0]?.content || "Untitled",
-        messages: chatHistory,
-      }),
-    });
-    const updated = await fetch(`${backendBase}/list_chats`).then((res) =>
-      res.json()
-    );
-    setSavedChats(updated);
-  };
+  await fetch(`${backendBase}/save_chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      title: chatHistory[0]?.content || "Untitled",
+      messages: chatHistory,
+      filename, // pass the filename to backend
+    }),
+  });
+
+  // Refresh saved chats from backend
+  const updated = await fetch(`${backendBase}/list_chats`).then((res) => res.json());
+  setSavedChats(updated);
+
+  // Keep this chat as active
+  setActiveChat(filename);
+};
+
+
 
   const deleteChat = async (filename) => {
     const res = await fetch(`${backendBase}/delete_chat/${filename}`, {
@@ -78,11 +90,7 @@ export default function App() {
               {props.children}
             </pre>
             <button
-              onClick={() =>
-                navigator.clipboard.writeText(
-                  props.children[0].props.children
-                )
-              }
+              onClick={() => navigator.clipboard.writeText(props.children[0].props.children)}
               className="absolute top-2 right-2 bg-slate-700 text-white px-2 py-1 rounded text-sm hover:bg-slate-600 z-10"
             >
               Copy
@@ -136,10 +144,7 @@ export default function App() {
         setChatHistory((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant") {
-            return [
-              ...prev.slice(0, -1),
-              { role: "assistant", content: last.content + chunk },
-            ];
+            return [...prev.slice(0, -1), { role: "assistant", content: last.content + chunk }];
           } else {
             return [...prev, { role: "assistant", content: chunk }];
           }
@@ -171,7 +176,7 @@ export default function App() {
       <div className="w-64 bg-slate-800 p-4 overflow-y-auto flex-shrink-0 flex flex-col">
         <h2 className="text-xl font-semibold mb-4">📂 Saved Chats</h2>
         <button
-          className="w-full mb-4 px-3 py-2 bg-green-600 rounded-full hover:bg-green-500"
+          className="w-full mb-4 px-3 py-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white"
           onClick={() => {
             setChatHistory([]);
             setActiveChat(null);
@@ -181,58 +186,47 @@ export default function App() {
           + New Chat
         </button>
 
-        {savedChats.length === 0 && (
-          <p className="text-slate-400">No saved chats yet.</p>
-        )}
+        {savedChats.length === 0 && <p className="text-slate-400">No saved chats yet.</p>}
         {savedChats.map((chat) => (
-          <div
-            key={chat.filename}
-            className={`p-2 mb-2 rounded cursor-pointer hover:bg-slate-700 flex justify-between items-center ${
-              activeChat === chat.filename ? "bg-slate-600" : ""
-            }`}
-          >
-            <div
-              onClick={() => loadChat(chat.filename)}
-              className="flex-1"
-            >
+          <div key={chat.filename} className="relative p-2 mb-2 rounded cursor-pointer hover:bg-slate-700 flex justify-between items-center">
+            <div onClick={() => loadChat(chat.filename)} className={`flex-1 ${deleteConfirm === chat.filename ? "opacity-50" : ""}`}>
               {chat.title}
             </div>
-            <button
-              onClick={() => setDeleteConfirm(chat.filename)}
-              className="text-red-500 hover:text-red-400"
-            >
-              🗑
-            </button>
+            {deleteConfirm === chat.filename ? (
+              <div className="absolute right-0 top-0 flex gap-2">
+                <button
+                  onClick={() => deleteChat(chat.filename)}
+                  className="px-2 py-1 text-green-500 hover:text-green-400 text-xl"
+                  title="Yes"
+                >
+                  ✔
+                </button>
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="px-2 py-1 text-red-500 hover:text-red-400 text-xl"
+                  title="Cancel"
+                >
+                  ✖
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setDeleteConfirm(chat.filename)}
+                className="px-2 py-2 text-red-500 hover:text-red-400"
+              >
+                🗑
+              </button>
+            )}
           </div>
         ))}
 
         <button
           onClick={saveChat}
           disabled={chatHistory.length === 0}
-          className="w-full mt-auto px-3 py-2 bg-blue-600 rounded-full hover:bg-blue-500 disabled:opacity-50"
+          className="w-full mt-auto px-3 py-2 rounded-full disabled:opacity-50 bg-slate-700 hover:bg-slate-600 text-white"
         >
           Save Current Chat
         </button>
-
-        {/* Delete confirmation */}
-        {deleteConfirm && (
-          <div className="mt-2 p-2 bg-black rounded flex justify-center gap-4">
-            <button
-              onClick={() => deleteChat(deleteConfirm)}
-              className="text-green-500 hover:text-green-400 text-xl"
-              title="Yes"
-            >
-              ✔
-            </button>
-            <button
-              onClick={() => setDeleteConfirm(null)}
-              className="text-red-500 hover:text-red-400 text-xl"
-              title="Cancel"
-            >
-              ✖
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Main Chat Area */}
@@ -241,15 +235,10 @@ export default function App() {
           ref={outputRef}
           className="w-[calc(100%-16rem)] max-h-[calc(100vh-80px)] overflow-auto p-6 rounded-lg bg-black text-green-300 shadow-lg mb-4 break-words whitespace-pre-wrap"
         >
-          {chatHistory.length === 0 && (
-            <p className="text-slate-400">Your chat will appear here...</p>
-          )}
-
+          {chatHistory.length === 0 && <p className="text-slate-400">Your chat will appear here...</p>}
           {chatHistory.map((msg, idx) => (
             <div key={idx} className="mb-4">
-              <strong className="text-white">
-                {msg.role === "user" ? "You:" : "Assistant:"}
-              </strong>
+              <strong className="text-white">{msg.role === "user" ? "You:" : "Assistant:"}</strong>
               <div className="mt-1">
                 <MarkdownWithCopy content={msg.content} />
               </div>
@@ -280,7 +269,7 @@ export default function App() {
                 onClick={handleCancel}
                 className="w-8 h-8 flex items-center justify-center bg-black hover:bg-gray-800 rounded-md"
                 title="Stop Generation"
-                >
+              >
                 X
               </button>
             )}
@@ -290,7 +279,14 @@ export default function App() {
               disabled={streaming || !prompt.trim()}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full disabled:opacity-50"
             >
-              Send
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="h-5 w-5 transform -rotate-45"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+              </svg>
             </button>
           </form>
         </div>

@@ -118,13 +118,18 @@ async def save_chat(request: Request):
     messages = data.get("messages", [])
     title = data.get("title") or (messages[0]["content"][:30] if messages else "Untitled")
 
-    filename = f"{datetime.now().strftime('%Y-%m-%d')}_{uuid.uuid4().hex[:6]}.json"
+    # Use existing filename if provided, otherwise generate a new one
+    filename = data.get("filename")
+    if not filename:
+        filename = f"{datetime.now().strftime('%Y-%m-%d')}_{uuid.uuid4().hex[:6]}.json"
+
     filepath = os.path.join(CHAT_DIR, filename)
 
     with open(filepath, "w") as f:
         json.dump({"title": title, "messages": messages}, f)
 
     return {"status": "ok", "filename": filename}
+
 
 # -------------------------------
 # List Saved Chats
