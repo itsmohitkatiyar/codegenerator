@@ -78,6 +78,8 @@ export default function App() {
     setDeleteConfirm(null);
   };
 
+
+
   // Markdown component with copy button inside code blocks
   const MarkdownWithCopy = ({ content }) => (
     <ReactMarkdown
@@ -169,6 +171,20 @@ export default function App() {
   const handleCancel = () => {
     if (abortRef.current) abortRef.current.abort();
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        handleCancel();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [handleCancel]);
 
   return (
     <div className="w-screen h-screen flex bg-slate-900 text-white">
