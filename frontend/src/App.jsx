@@ -12,7 +12,9 @@ export default function App() {
   const [activeChat, setActiveChat] = useState(null);
   const [streaming, setStreaming] = useState(false);
   const [status, setStatus] = useState("");
-  const [deleteConfirm, setDeleteConfirm] = useState(null); // filename to confirm deletion
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  const [model, setModel] = useState("qwen"); // ✅ Model selection state
 
   const abortRef = useRef(null);
   const outputRef = useRef(null);
@@ -29,45 +31,36 @@ export default function App() {
   }, []);
 
   const loadChat = async (filename) => {
-  const res = await fetch(`${backendBase}/load_chat/${filename}`);
-  const data = await res.json();
-  setChatHistory(data.messages || []);
-  setActiveChat(filename); // this ensures next save updates this chat
-  setDeleteConfirm(null);
-};
-
+    const res = await fetch(`${backendBase}/load_chat/${filename}`);
+    const data = await res.json();
+    setChatHistory(data.messages || []);
+    setActiveChat(filename);
+    setDeleteConfirm(null);
+  };
 
   const saveChat = async () => {
-  // Use existing activeChat filename if it exists, otherwise generate a new one
-  let filename = activeChat;
-  if (!filename) {
-    filename = `${new Date().toISOString().split("T")[0]}_${uuidv4().slice(0, 6)}.json`;
-  }
+    let filename = activeChat;
+    if (!filename) {
+      filename = `${new Date().toISOString().split("T")[0]}_${uuidv4().slice(0, 6)}.json`;
+    }
 
-  await fetch(`${backendBase}/save_chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      title: chatHistory[0]?.content || "Untitled",
-      messages: chatHistory,
-      filename, // pass the filename to backend
-    }),
-  });
+    await fetch(`${backendBase}/save_chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: chatHistory[0]?.content || "Untitled",
+        messages: chatHistory,
+        filename,
+      }),
+    });
 
-  // Refresh saved chats from backend
-  const updated = await fetch(`${backendBase}/list_chats`).then((res) => res.json());
-  setSavedChats(updated);
-
-  // Keep this chat as active
-  setActiveChat(filename);
-};
-
-
+    const updated = await fetch(`${backendBase}/list_chats`).then((res) => res.json());
+    setSavedChats(updated);
+    setActiveChat(filename);
+  };
 
   const deleteChat = async (filename) => {
-    const res = await fetch(`${backendBase}/delete_chat/${filename}`, {
-      method: "DELETE",
-    });
+    const res = await fetch(`${backendBase}/delete_chat/${filename}`, { method: "DELETE" });
     if (res.ok) {
       setSavedChats((prev) => prev.filter((c) => c.filename !== filename));
       if (activeChat === filename) {
@@ -78,9 +71,6 @@ export default function App() {
     setDeleteConfirm(null);
   };
 
-
-
-  // Markdown component with copy button inside code blocks
   const MarkdownWithCopy = ({ content }) => (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -92,7 +82,9 @@ export default function App() {
               {props.children}
             </pre>
             <button
-              onClick={() => navigator.clipboard.writeText(props.children[0].props.children)}
+              onClick={() =>
+                navigator.clipboard.writeText(props.children[0].props.children)
+              }
               className="absolute top-2 right-2 bg-slate-700 text-white px-2 py-1 rounded text-sm hover:bg-slate-600 z-10"
             >
               Copy
@@ -123,7 +115,7 @@ export default function App() {
       const res = await fetch(`${backendBase}/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newHistory }),
+        body: JSON.stringify({ messages: newHistory, model }), // ✅ send selected model
         signal: controller.signal,
       });
 
@@ -135,18 +127,19 @@ export default function App() {
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
-      let assistantReply = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        assistantReply += chunk;
 
         setChatHistory((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant") {
-            return [...prev.slice(0, -1), { role: "assistant", content: last.content + chunk }];
+            return [
+              ...prev.slice(0, -1),
+              { role: "assistant", content: last.content + chunk },
+            ];
           } else {
             return [...prev, { role: "assistant", content: chunk }];
           }
@@ -178,12 +171,8 @@ export default function App() {
         handleCancel();
       }
     };
-
     document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleCancel]);
 
   return (
@@ -191,6 +180,20 @@ export default function App() {
       {/* Sidebar */}
       <div className="w-64 bg-slate-800 p-4 overflow-y-auto flex-shrink-0 flex flex-col">
         <h2 className="text-xl font-semibold mb-4">📂 Saved Chats</h2>
+
+        {/* ✅ Model Selector */}
+        <div className="mb-4">
+          <label className="text-sm text-slate-300 block mb-1">Model:</label>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full p-2 rounded bg-slate-700 text-white"
+          >
+            <option value="qwen">Qwen</option>
+            <option value="codeLLama">codeLLama</option>
+          </select>
+        </div>
+
         <button
           className="w-full mb-4 px-3 py-2 rounded-full bg-slate-700 hover:bg-slate-600 text-white"
           onClick={() => {
@@ -204,8 +207,14 @@ export default function App() {
 
         {savedChats.length === 0 && <p className="text-slate-400">No saved chats yet.</p>}
         {savedChats.map((chat) => (
-          <div key={chat.filename} className="relative p-2 mb-2 rounded cursor-pointer hover:bg-slate-700 flex justify-between items-center">
-            <div onClick={() => loadChat(chat.filename)} className={`flex-1 ${deleteConfirm === chat.filename ? "opacity-50" : ""}`}>
+          <div
+            key={chat.filename}
+            className="relative p-2 mb-2 rounded cursor-pointer hover:bg-slate-700 flex justify-between items-center"
+          >
+            <div
+              onClick={() => loadChat(chat.filename)}
+              className={`flex-1 ${deleteConfirm === chat.filename ? "opacity-50" : ""}`}
+            >
               {chat.title}
             </div>
             {deleteConfirm === chat.filename ? (
@@ -254,7 +263,9 @@ export default function App() {
           {chatHistory.length === 0 && <p className="text-slate-400">Your chat will appear here...</p>}
           {chatHistory.map((msg, idx) => (
             <div key={idx} className="mb-4">
-              <strong className="text-white">{msg.role === "user" ? "You:" : "Assistant:"}</strong>
+              <strong className="text-white">
+                {msg.role === "user" ? "You:" : "Assistant:"}
+              </strong>
               <div className="mt-1">
                 <MarkdownWithCopy content={msg.content} />
               </div>
@@ -262,7 +273,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* Bottom-fixed prompt bar */}
+        {/* Bottom prompt bar */}
         <div className="fixed bottom-0 left-64 w-[calc(100%-16rem)] bg-slate-900 p-4 flex items-end shadow-inner z-50 rounded-md">
           <form onSubmit={handleSubmit} className="w-full flex items-center gap-2">
             <textarea

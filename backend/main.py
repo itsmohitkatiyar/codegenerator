@@ -8,11 +8,34 @@ import uuid
 from datetime import datetime
 
 # -------------------------------
-# Model Path
+# Model Paths
 # -------------------------------
-MODEL_PATH = os.path.expanduser(
-    "~/models/llm/qwen/qwen2.5-7b-instruct-q4_0-00001-of-00002.gguf"
-)
+MODEL_PATHS = {
+    "qwen": os.path.expanduser(
+        "~/models/llm/qwen/qwen2.5-7b-instruct-q4_0-00001-of-00002.gguf"
+    ),
+    "codeLLama": os.path.expanduser(
+        "/Users/mohitkatiyar/Models/llm/codellama/codellama-7b-instruct.Q6_K.gguf"
+    ),
+}
+
+# Keep cached models so we don't reload repeatedly
+loaded_models = {}
+
+def get_model(model_name: str) -> Llama:
+    """Return a cached model instance, load if not already loaded."""
+    if model_name not in MODEL_PATHS:
+        raise ValueError(f"Unknown model: {model_name}")
+
+    if model_name not in loaded_models:
+        print(f"🔹 Loading {model_name} model...")
+        loaded_models[model_name] = Llama(
+            model_path=MODEL_PATHS[model_name],
+            n_ctx=8192,
+            n_threads=8,
+            n_gpu_layers=-1   # ✅ offload all layers to GPU (Metal)
+        )
+    return loaded_models[model_name]
 
 # -------------------------------
 # Chat Storage
@@ -20,7 +43,7 @@ MODEL_PATH = os.path.expanduser(
 CHAT_DIR = os.path.expanduser("~/saved_chats")
 os.makedirs(CHAT_DIR, exist_ok=True)
 
-HISTORY_FILE = os.path.join(CHAT_DIR, "chat_history.json")  # for session continuity
+HISTORY_FILE = os.path.join(CHAT_DIR, "chat_history.json")
 
 def load_history():
     if os.path.exists(HISTORY_FILE):
@@ -36,17 +59,6 @@ def save_history(messages):
         json.dump(messages, f)
 
 # -------------------------------
-# Load Qwen Model
-# -------------------------------
-print("🔹 Loading Qwen model on Apple Silicon GPU...")
-llm = Llama(
-    model_path=MODEL_PATH,
-    n_ctx=8192,
-    n_threads=8,
-    n_gpu_layers=-1   # ✅ offload all layers to GPU (Metal)
-)
-
-# -------------------------------
 # FastAPI Setup
 # -------------------------------
 app = FastAPI()
@@ -58,28 +70,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------------------
-# Stream Endpoint
-# -------------------------------
 @app.post("/stream")
 async def stream(request: Request):
-    """
-    Stream Qwen responses token by token.
-    Expects JSON payload: { "messages": [ {"role": "user"/"assistant", "content": "..."} ] }
-    """
     data = await request.json()
     messages = data.get("messages", [])
+    model_name = data.get("model", "qwen")
 
-    # Save current session history
+    # Save history
     save_history(messages)
 
-    # Build prompt from chat history
-    prompt_text = ""
-    for msg in messages:
-        if msg["role"] == "user":
-            prompt_text += f"> {msg['content']}\n\n"
-        else:
-            prompt_text += f"{msg['content']}\n\n"
+    # ✅ Build model-specific prompt
+    prompt_text = build_prompt(messages, model_name)
+
+    llm = get_model(model_name)
 
     def event_stream():
         buffer = ""
@@ -91,12 +94,9 @@ async def stream(request: Request):
         ):
             text = token["choices"][0]["text"]
             buffer += text
-
-            # Send output in small chunks
             if len(buffer) > 0:
                 yield buffer
                 buffer = ""
-
         if buffer:
             yield buffer
 
@@ -118,18 +118,15 @@ async def save_chat(request: Request):
     messages = data.get("messages", [])
     title = data.get("title") or (messages[0]["content"][:30] if messages else "Untitled")
 
-    # Use existing filename if provided, otherwise generate a new one
     filename = data.get("filename")
     if not filename:
         filename = f"{datetime.now().strftime('%Y-%m-%d')}_{uuid.uuid4().hex[:6]}.json"
 
     filepath = os.path.join(CHAT_DIR, filename)
-
     with open(filepath, "w") as f:
         json.dump({"title": title, "messages": messages}, f)
 
     return {"status": "ok", "filename": filename}
-
 
 # -------------------------------
 # List Saved Chats
@@ -166,3 +163,30 @@ async def delete_chat(filename: str):
         return JSONResponse({"status": "success", "message": f"{filename} deleted"})
     else:
         return JSONResponse({"status": "error", "message": f"{filename} not found"}, status_code=404)
+
+# -------------------------------
+# Prompt Builder
+# -------------------------------
+def build_prompt(messages, model_name: str) -> str:
+    if model_name == "codeLLama":
+        # CodeLlama-Instruct format
+        prompt = ""
+        for msg in messages:
+            if msg["role"] == "user":
+                prompt += f"<s>[INST] {msg['content']} [/INST]"
+            elif msg["role"] == "assistant":
+                prompt += f" {msg['content']} </s>"
+        return prompt
+    else:
+        # Qwen (or fallback) format
+        system_prompt = (
+            "You are a helpful coding assistant. Always respond in English unless explicitly asked otherwise. "
+            "ONLY RESPOND TO THE QUESTION."
+        )
+        prompt = system_prompt + "\n\n"
+        for msg in messages:
+            if msg["role"] == "user":
+                prompt += f"> {msg['content']}\n\n"
+            else:
+                prompt += f"{msg['content']}\n\n"
+        return prompt
