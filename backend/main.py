@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from llama_cpp import Llama
@@ -6,6 +6,8 @@ import os
 import json
 import uuid
 from datetime import datetime
+from projects_context import set_project, get_project_context
+
 
 # -------------------------------
 # Model Paths
@@ -23,19 +25,17 @@ MODEL_PATHS = {
 loaded_models = {}
 
 def get_model(model_name: str) -> Llama:
-    """Return a cached model instance, load if not already loaded."""
+    """Return a fresh model instance on each switch."""
     if model_name not in MODEL_PATHS:
         raise ValueError(f"Unknown model: {model_name}")
 
-    if model_name not in loaded_models:
-        print(f"🔹 Loading {model_name} model...")
-        loaded_models[model_name] = Llama(
-            model_path=MODEL_PATHS[model_name],
-            n_ctx=8192,
-            n_threads=8,
-            n_gpu_layers=-1   # ✅ offload all layers to GPU (Metal)
-        )
-    return loaded_models[model_name]
+    print(f"🔹 Loading {model_name} model...")
+    return Llama(
+        model_path=MODEL_PATHS[model_name],
+        n_ctx=8192,
+        n_threads=8,
+        n_gpu_layers=-1
+    )
 
 # -------------------------------
 # Chat Storage
@@ -75,12 +75,13 @@ async def stream(request: Request):
     data = await request.json()
     messages = data.get("messages", [])
     model_name = data.get("model", "qwen")
+    project_path = data.get("project_path")  # Selected folder path
 
-    # Save history
+    # ✅ Build prompt with project context
+    prompt_text = build_prompt(messages, model_name, project_path)
+
+    # Optional: save chat history
     save_history(messages)
-
-    # ✅ Build model-specific prompt
-    prompt_text = build_prompt(messages, model_name)
 
     llm = get_model(model_name)
 
@@ -92,7 +93,8 @@ async def stream(request: Request):
             max_tokens=4096,
             stop=None
         ):
-            text = token["choices"][0]["text"]
+            # Extract token text
+            text = token.get("choices", [{}])[0].get("text", "")
             buffer += text
             if len(buffer) > 0:
                 yield buffer
@@ -101,6 +103,7 @@ async def stream(request: Request):
             yield buffer
 
     return StreamingResponse(event_stream(), media_type="text/plain")
+
 
 # -------------------------------
 # Session History
@@ -167,26 +170,87 @@ async def delete_chat(filename: str):
 # -------------------------------
 # Prompt Builder
 # -------------------------------
-def build_prompt(messages, model_name: str) -> str:
+def build_prompt(messages, model_name: str, project_path: str = None) -> str:
+    project_context = get_project_context(project_path) if project_path else ""
+
+    print(f"Project Context is {project_context}")
+
     if model_name == "codeLLama":
-        # CodeLlama-Instruct format
         prompt = ""
         for msg in messages:
             if msg["role"] == "user":
                 prompt += f"<s>[INST] {msg['content']} [/INST]"
             elif msg["role"] == "assistant":
                 prompt += f" {msg['content']} </s>"
+        if project_context:
+            prompt += f"\n\n--- Project Context ---\n{project_context}"
         return prompt
+
     else:
-        # Qwen (or fallback) format
         system_prompt = (
-            "You are a helpful coding assistant. Always respond in English unless explicitly asked otherwise. "
-            "ONLY RESPOND TO THE QUESTION."
+            "You are a helpful coding assistant. Always output code in Markdown fenced blocks with proper language tags. "
+            "Always respond in English unless explicitly asked otherwise. ONLY RESPOND TO THE QUESTION."
         )
-        prompt = system_prompt + "\n\n"
+        if project_context:
+            system_prompt += f"\n\n--- Project Context ---\n{project_context}"
+
+        prompt_text = system_prompt + "\n\n"
         for msg in messages:
             if msg["role"] == "user":
-                prompt += f"> {msg['content']}\n\n"
+                prompt_text += f"> {msg['content']}\n\n"
             else:
-                prompt += f"{msg['content']}\n\n"
-        return prompt
+                prompt_text += f"{msg['content']}\n\n"
+
+        return prompt_text
+
+
+
+
+@app.post("/set_project")
+async def set_project(request: Request):
+    global PROJECT_PATH
+    data = await request.json()
+    path = data.get("path", "").strip()
+
+    if path and os.path.isdir(path):
+        PROJECT_PATH = path
+        return {"status": "ok"}
+    else:
+        PROJECT_PATH = None
+        return {"status": "ok", "message": "No project selected. Agent will be project-agnostic."}
+
+
+@app.get("/list_project_dirs")
+async def list_project_dirs(path: str = None):
+    """List subdirectories of the given path. Default: home directory."""
+    if not path:
+        path = os.path.expanduser("~")
+    if not os.path.isdir(path):
+        return JSONResponse({"error": "Invalid directory"}, status_code=400)
+
+    dirs = []
+    files = []
+    for entry in os.listdir(path):
+        full_path = os.path.join(path, entry)
+        if os.path.isdir(full_path):
+            dirs.append(entry)
+        else:
+            files.append(entry)
+    return {"path": path, "dirs": dirs, "files": files}
+
+@app.get("/home_dir")
+def get_home_dir():
+    return {"home": os.path.expanduser("~")}
+
+@app.get("/list_dir")
+def list_dir(path: str = Query("/")):
+    try:
+        if not os.path.exists(path) or not os.path.isdir(path):
+            return JSONResponse(status_code=404, content={"error": "Directory not found"})
+        contents = os.listdir(path)
+        # Optionally, sort: folders first, then files
+        folders = sorted([c for c in contents if os.path.isdir(os.path.join(path, c))])
+        files = sorted([c for c in contents if os.path.isfile(os.path.join(path, c))])
+        return {"contents": folders + files}
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})

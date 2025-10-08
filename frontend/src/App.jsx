@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import "highlight.js/styles/github-dark.css";
 import { v4 as uuidv4 } from "uuid";
+import { FaFolder } from "react-icons/fa";
 
 export default function App() {
   const [prompt, setPrompt] = useState("");
@@ -14,7 +15,11 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-  const [model, setModel] = useState("qwen"); // ✅ Model selection state
+  const [model, setModel] = useState("qwen");
+  const [showDirPanel, setShowDirPanel] = useState(false);
+  const [currentDir, setCurrentDir] = useState("/");
+  const [dirContents, setDirContents] = useState([]);
+  const [selectedDir, setSelectedDir] = useState(null);
 
   const abortRef = useRef(null);
   const outputRef = useRef(null);
@@ -22,12 +27,20 @@ export default function App() {
   const backendBase = "http://127.0.0.1:8501";
   document.title = "Code Generator";
 
-  // Load saved chats on mount
+  // Load saved chats
   useEffect(() => {
     fetch(`${backendBase}/list_chats`)
       .then((res) => res.json())
       .then(setSavedChats)
       .catch(() => console.log("⚠️ Could not load saved chats"));
+  }, []);
+
+  // Load home directory
+  useEffect(() => {
+    fetch(`${backendBase}/home_dir`)
+      .then((res) => res.json())
+      .then((data) => setCurrentDir(data.home))
+      .catch(() => setCurrentDir("/"));
   }, []);
 
   const loadChat = async (filename) => {
@@ -71,6 +84,43 @@ export default function App() {
     setDeleteConfirm(null);
   };
 
+  const fetchDirContents = async (dir) => {
+  try {
+    const res = await fetch(`${backendBase}/list_dir?path=${encodeURIComponent(dir)}`);
+    if (res.ok) {
+      const data = await res.json();
+      setDirContents(data.contents || []);  // <-- use data.contents
+    } else {
+      console.error("Failed to fetch directory contents");
+      setDirContents([]);
+    }
+  } catch (err) {
+    console.error(err);
+    setDirContents([]);
+  }
+};
+
+  const navigateDir = (folder) => {
+    const newPath = currentDir === "/" ? `/${folder}` : `${currentDir}/${folder}`;
+    setCurrentDir(newPath);
+    fetchDirContents(newPath);
+  };
+
+  const goToParentDir = () => {
+    const parent = currentDir.split("/").slice(0, -1).join("/") || "/";
+    setCurrentDir(parent);
+    fetchDirContents(parent);
+  };
+
+  const selectProjectDir = (dir) => {
+    setSelectedDir(dir);
+    setShowDirPanel(false);
+  };
+
+  useEffect(() => {
+    if (showDirPanel) fetchDirContents(currentDir);
+  }, [showDirPanel]);
+
   const MarkdownWithCopy = ({ content }) => (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -96,7 +146,6 @@ export default function App() {
       {content}
     </ReactMarkdown>
   );
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!prompt.trim()) return;
@@ -115,7 +164,7 @@ export default function App() {
       const res = await fetch(`${backendBase}/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: newHistory, model }), // ✅ send selected model
+        body: JSON.stringify({ messages: newHistory, model, project_path: selectedDir }),
         signal: controller.signal,
       });
 
@@ -136,10 +185,7 @@ export default function App() {
         setChatHistory((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === "assistant") {
-            return [
-              ...prev.slice(0, -1),
-              { role: "assistant", content: last.content + chunk },
-            ];
+            return [...prev.slice(0, -1), { role: "assistant", content: last.content + chunk }];
           } else {
             return [...prev, { role: "assistant", content: chunk }];
           }
@@ -167,13 +213,17 @@ export default function App() {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === "Escape") {
-        handleCancel();
-      }
+      if (e.key === "Escape") handleCancel();
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [handleCancel]);
+
+  // Helper: generate breadcrumbs
+  const breadcrumbs = currentDir.split("/").filter(Boolean);
+  const breadcrumbPaths = breadcrumbs.map((_, idx) =>
+    "/" + breadcrumbs.slice(0, idx + 1).join("/")
+  );
 
   return (
     <div className="w-screen h-screen flex bg-slate-900 text-white">
@@ -181,7 +231,6 @@ export default function App() {
       <div className="w-64 bg-slate-800 p-4 overflow-y-auto flex-shrink-0 flex flex-col">
         <h2 className="text-xl font-semibold mb-4">📂 Saved Chats</h2>
 
-        {/* ✅ Model Selector */}
         <div className="mb-4">
           <label className="text-sm text-slate-300 block mb-1">Model:</label>
           <select
@@ -192,6 +241,17 @@ export default function App() {
             <option value="qwen">Qwen</option>
             <option value="codeLLama">codeLLama</option>
           </select>
+        </div>
+
+        <div className="mb-4 flex items-center gap-2">
+          <button
+            onClick={() => setShowDirPanel(!showDirPanel)}
+            className="p-2 bg-slate-700 hover:bg-slate-600 rounded"
+            title="Select Project Directory"
+          >
+            <FaFolder />
+          </button>
+          <span className="text-slate-300 text-sm truncate">{selectedDir || "No directory selected"}</span>
         </div>
 
         <button
@@ -256,6 +316,50 @@ export default function App() {
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col items-center p-4 relative">
+        {showDirPanel && (
+          <div className="absolute top-20 left-72 w-96 bg-slate-800 p-4 rounded shadow-lg z-50">
+            {/* Breadcrumb navigation */}
+            <div className="flex flex-wrap gap-1 mb-2">
+              <button
+                onClick={() => { setCurrentDir("/"); fetchDirContents("/"); }}
+                className="text-slate-400 hover:text-white underline px-1"
+              >
+                /
+              </button>
+              {breadcrumbs.map((crumb, idx) => (
+                <React.Fragment key={idx}>
+                  <span>/</span>
+                  <button
+                    onClick={() => { setCurrentDir(breadcrumbPaths[idx]); fetchDirContents(breadcrumbPaths[idx]); }}
+                    className="text-slate-400 hover:text-white underline px-1"
+                  >
+                    {crumb}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
+
+            <div className="max-h-64 overflow-auto">
+              {dirContents.map((item) => (
+                <div
+                  key={item}
+                  className="p-1 cursor-pointer hover:bg-slate-700 rounded flex justify-between items-center"
+                  onClick={() => navigateDir(item)}
+                >
+                  <span>{item}</span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); selectProjectDir(currentDir === "/" ? `/${item}` : `${currentDir}/${item}`); }}
+                    className="ml-2 text-green-400 hover:text-green-300"
+                  >
+                    Select
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Chat output and input */}
         <div
           ref={outputRef}
           className="w-[calc(100%-16rem)] max-h-[calc(100vh-80px)] overflow-auto p-6 rounded-lg bg-black text-green-300 shadow-lg mb-4 break-words whitespace-pre-wrap"
@@ -263,9 +367,7 @@ export default function App() {
           {chatHistory.length === 0 && <p className="text-slate-400">Your chat will appear here...</p>}
           {chatHistory.map((msg, idx) => (
             <div key={idx} className="mb-4">
-              <strong className="text-white">
-                {msg.role === "user" ? "You:" : "Assistant:"}
-              </strong>
+              <strong className="text-white">{msg.role === "user" ? "You:" : "Assistant:"}</strong>
               <div className="mt-1">
                 <MarkdownWithCopy content={msg.content} />
               </div>
@@ -273,23 +375,16 @@ export default function App() {
           ))}
         </div>
 
-        {/* Bottom prompt bar */}
         <div className="fixed bottom-0 left-64 w-[calc(100%-16rem)] bg-slate-900 p-4 flex items-end shadow-inner z-50 rounded-md">
           <form onSubmit={handleSubmit} className="w-full flex items-center gap-2">
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmit(e);
-                }
-              }}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSubmit(e); } }}
               placeholder="Send a message..."
               rows={1}
               className="flex-1 p-3 bg-slate-800 text-white rounded-full placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600 resize-none"
             />
-
             {streaming && (
               <button
                 type="button"
@@ -300,18 +395,12 @@ export default function App() {
                 X
               </button>
             )}
-
             <button
               type="submit"
               disabled={streaming || !prompt.trim()}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-full disabled:opacity-50"
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-5 w-5 transform -rotate-45"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transform -rotate-45" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
               </svg>
             </button>

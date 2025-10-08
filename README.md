@@ -164,6 +164,7 @@ npm run dev
 * `remark-gfm`
 * `rehype-highlight`
 * `highlight.js`
+* 'npm install react-icons'
 
 ---
 
